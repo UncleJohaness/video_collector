@@ -303,7 +303,7 @@ def stream(job_id):
                 obj = q.get(timeout=0.5)
             except queue.Empty:
                 # break when finished and queue empty
-                if jobs[job_id]['finished'] and q.empty():
+            if jobs[job_id]['finished'] and q.empty():
                     break
                 continue
             # send object as JSON-like string
