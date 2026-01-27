@@ -49,7 +49,7 @@
   <form id="collectForm" class="card" method="post" onsubmit="return startJob();" autocomplete="off" novalidate>
     <div>
       <label for="keywords">Keywords / tags (comma separated)</label>
-      <input id="keywords" name="keywords" type="text" placeholder="e.g. cat, tutorial, 2024" required />
+      <input id="keywords" name="keywords" type="text" placeholder="e.g. ass, blowjob, missionary" required />
     </div>
 
     <div class="row">
@@ -238,7 +238,19 @@ function stopEvent(){
     document.getElementById("stopBtn").style.display = "none";
     appendLog({type:"log", msg:"Log stream stopped by user."});
   }
+  
 }
+
+evtSource.onerror = function(e){
+    appendLog({type:"error", msg:"Connection error with log stream. Retrying..."});
+    if(evtSource && currentJob){
+        evtSource.close();
+        setTimeout(()=>{
+            openStream(currentJob); // reconnect
+        }, 1500);
+    }
+};
+
 </script>
 </body>
 </html>
