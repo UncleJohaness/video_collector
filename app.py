@@ -30,8 +30,8 @@ LISTING_URL_FMT = BASE_DOMAIN + "/video?page={}"       # e.g. https://website.co
 TOTAL_PAGES = int(os.environ.get("TOTAL_PAGES", "100"))
 USER_AGENT = os.environ.get("USER_AGENT", "Mozilla/5.0 (compatible; LinkCollector/1.0)")
 REQUEST_TIMEOUT = 10                                   # seconds
-DELAY_MIN = float(os.environ.get("DELAY_MIN", "0.8"))
-DELAY_MAX = float(os.environ.get("DELAY_MAX", "1.6"))
+DELAY_MIN = float(os.environ.get("DELAY_MIN", "0.5"))
+DELAY_MAX = float(os.environ.get("DELAY_MAX", "1.0"))
 OBEY_ROBOTS = os.environ.get("OBEY_ROBOTS", "True").lower() in ("1","true","yes")
 MAX_LINKS_PER_JOB = int(os.environ.get("MAX_LINKS_PER_JOB", "50"))  # safety cap
 # -----------------------------
