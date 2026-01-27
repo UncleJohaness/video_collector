@@ -1,34 +1,244 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <title>Video link collector</title>
-  <style>
-    body{font-family:Arial,Helvetica,sans-serif;padding:30px;max-width:900px;margin:auto}
-    input,textarea{width:100%;padding:8px;margin:6px 0}
-    .small{font-size:0.9rem;color:#666}
-    button{padding:10px 14px}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Video Collector</title>
+<style>
+  :root{
+    --accent:#007acc;
+    --muted:#666;
+    --card-bg:#fff;
+    --bg:#f7f8fa;
+  }
+  body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; background:var(--bg); color:#111}
+  header{background:#fff;padding:12px 16px;border-bottom:1px solid #e6e9ee;position:sticky;top:0;z-index:5}
+  .container{max-width:980px;margin:18px auto;padding:0 14px}
+  h1{margin:0;font-size:1.2rem}
+  form.card{background:var(--card-bg);padding:14px;border-radius:10px;box-shadow:0 6px 18px rgba(20,30,60,0.04);display:flex;flex-direction:column;gap:10px}
+  label{font-weight:600;font-size:0.9rem}
+  input[type="text"], input[type="number"], textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;box-sizing:border-box}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .btn{background:var(--accent);color:#fff;padding:10px 12px;border-radius:8px;border:0;cursor:pointer}
+  .small{font-size:0.9rem;color:var(--muted)}
+  .flex{display:flex;gap:12px;align-items:center}
+  .panel{margin-top:14px;background:#fff;padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(20,30,60,0.04)}
+  #logs{height:240px;overflow:auto;border-radius:8px;padding:10px;background:#0b1220;color:#dbeafe;font-family:monospace;font-size:0.85rem}
+  .log-line{margin:0 0 6px}
+  .match{color:#a7f3d0}
+  .error{color:#fecaca}
+  .results-list{display:flex;flex-direction:column;gap:14px}
+  .entry{display:flex;gap:12px;align-items:flex-start}
+  .entry img{width:140px;height:84px;object-fit:cover;border-radius:8px}
+  .entry .info{flex:1}
+  .entry .title{font-weight:600}
+  .entry a{color:var(--accent);word-break:break-all}
+  @media (max-width:720px){
+    .entry{flex-direction:column;align-items:flex-start}
+    .entry img{width:100%;height:auto}
+    #logs{height:200px}
+  }
+</style>
 </head>
 <body>
-  <h1>Video link collector</h1>
-  <p class="small">Listing base: {{ base_domain }} — Robots check: {{ obey_robots }}</p>
-  <form method="post" action="/collect">
-    <label>Keywords / tags (comma separated)</label><br>
-    <input name="keywords" placeholder="e.g. cat, tutorial, 2024" required>
-    <label>Number of links to collect</label><br>
-    <input name="desired" type="number" min="1" value="10" required>
-    <p class="small">Note: scraping may be blocked by robots.txt or rate-limited by the site.</p>
-    <button type="submit">Collect</button>
+<header>
+  <div class="container"><h1>Video Collector</h1></div>
+</header>
+
+<main class="container">
+  <form id="collectForm" class="card" onsubmit="return startJob();">
+    <div>
+      <label for="keywords">Keywords / tags (comma separated)</label>
+      <input id="keywords" name="keywords" type="text" placeholder="e.g. cat, tutorial, 2024" required />
+    </div>
+
+    <div class="row">
+      <div style="flex:1;">
+        <label for="desired">Number of links to collect (max {{ max_links }})</label>
+        <input id="desired" name="desired" type="number" min="1" value="5" />
+      </div>
+
+      <div style="width:180px;align-self:end">
+        <button class="btn" type="submit" id="startBtn">Start</button>
+      </div>
+    </div>
+
+    <div class="small">Listing base: <strong id="baseDomain">{{ base_domain }}</strong> — Robots check: <strong id="obeyRobots">{{ 'ON' if obey_robots else 'OFF' }}</strong></div>
   </form>
-  {% with messages = get_flashed_messages() %}
-    {% if messages %}
-      <ul style="color:crimson;margin-top:12px">
-      {% for m in messages %}
-        <li>{{ m }}</li>
-      {% endfor %}
-      </ul>
-    {% endif %}
-  {% endwith %}
+
+  <div id="liveArea" class="panel" style="display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div><strong>Live logs</strong> <span class="small" id="jobIdLabel"></span></div>
+      <div><button class="btn" id="stopBtn" style="display:none" onclick="stopEvent()">Stop</button></div>
+    </div>
+
+    <div id="logs" aria-live="polite" role="log"></div>
+
+    <div id="resultsPanel" style="display:none;margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div><strong>Results</strong></div>
+        <div><a id="downloadLink" href="#" class="small">Download HTML</a></div>
+      </div>
+      <div id="resultsList" class="results-list"></div>
+    </div>
+  </div>
+
+  <div style="margin-top:18px;" class="small">
+    Tip: keep the number small (5–10) when testing. Large scrapes may take longer.
+  </div>
+</main>
+
+<script>
+let evtSource = null;
+let currentJob = null;
+
+function appendLog(obj){
+  const logs = document.getElementById("logs");
+  const p = document.createElement("div");
+  p.className = "log-line";
+  let ts = new Date().toLocaleTimeString();
+  if(obj.type === "log"){
+    p.textContent = `[${ts}] ${obj.msg}`;
+  } else if(obj.type === "match"){
+    p.innerHTML = `<span class="match">[${ts}] ${escapeHtml(obj.msg)}</span>`;
+    // also add a small card entry as it arrives
+    if(obj.item){
+      addResultItem(obj.item, false);
+    }
+  } else if(obj.type === "error"){
+    p.innerHTML = `<span class="error">[${ts}] ${escapeHtml(obj.msg)}</span>`;
+  } else if(obj.type === "done"){
+    p.innerHTML = `<span style="color:#c7f9ff">[${ts}] ${escapeHtml(obj.msg)}</span>`;
+  } else {
+    p.textContent = `[${ts}] ${JSON.stringify(obj)}`;
+  }
+  logs.appendChild(p);
+  logs.scrollTop = logs.scrollHeight;
+}
+
+function escapeHtml(s){
+  if(!s) return "";
+  return s.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+}
+
+function addResultItem(item, showPanel=true){
+  const resultsList = document.getElementById("resultsList");
+  // If we don't have thumbnail, show placeholder
+  const div = document.createElement("div");
+  div.className = "entry";
+  const thumb = item.thumb ? `<img src="${escapeHtml(item.thumb)}" alt="thumb">` : `<div style="width:140px;height:84px;background:#f2f2f2;display:flex;align-items:center;justify-content:center;color:#999;border-radius:8px">No thumb</div>`;
+  const title = escapeHtml(item.title || "(no title)");
+  div.innerHTML = `<div>${thumb}</div><div class="info"><div class="title">${title}</div><div><a href="${escapeHtml(item.url)}" target="_blank">${escapeHtml(item.url)}</a></div></div>`;
+  resultsList.appendChild(div);
+  if(showPanel){
+    document.getElementById("resultsPanel").style.display = "block";
+  }
+}
+
+function startJob(){
+  const keywords = document.getElementById("keywords").value.trim();
+  const desired = document.getElementById("desired").value || "5";
+  if(!keywords) return false;
+  // hide previous
+  document.getElementById("liveArea").style.display = "block";
+  document.getElementById("resultsPanel").style.display = "none";
+  document.getElementById("resultsList").innerHTML = "";
+  document.getElementById("logs").innerHTML = "";
+  document.getElementById("jobIdLabel").textContent = "";
+
+  // disable button
+  const startBtn = document.getElementById("startBtn");
+  startBtn.disabled = true;
+  startBtn.textContent = "Starting...";
+
+  fetch("/collect", {
+    method: "POST",
+    headers: {"Content-Type": "application/x-www-form-urlencoded"},
+    body: new URLSearchParams({keywords: keywords, desired: desired})
+  }).then(r => r.json())
+    .then(data => {
+      if(data.error){
+        alert(data.error);
+        startBtn.disabled = false;
+        startBtn.textContent = "Start";
+        return;
+      }
+      const job_id = data.job_id;
+      currentJob = job_id;
+      document.getElementById("jobIdLabel").textContent = job_id;
+      startBtn.textContent = "Running...";
+      startBtn.disabled = false;
+      openStream(job_id);
+    }).catch(err=>{
+      alert("Error starting job: "+err);
+      startBtn.disabled = false;
+      startBtn.textContent = "Start";
+    });
+
+  return false; // prevent form submit
+}
+
+function openStream(job_id){
+  stopEvent(); // close previous if any
+  evtSource = new EventSource("/stream/" + job_id);
+  document.getElementById("stopBtn").style.display = "inline-block";
+  evtSource.onmessage = function(e){
+    try{
+      const obj = JSON.parse(e.data);
+      if(obj.type === "final"){
+        appendLog({type:"log", msg:"Stream closed by server."});
+        stopEvent();
+        fetchResults(job_id);
+        return;
+      }
+      // append log/match/done etc
+      appendLog(obj);
+
+      if(obj.type === "done"){
+        // job ended: fetch results
+        fetchResults(job_id);
+      }
+    }catch(err){
+      console.error("Invalid event data", err, e.data);
+    }
+  };
+  evtSource.onerror = function(e){
+    appendLog({type:"error", msg:"Connection error with log stream."});
+    // don't auto-close; user can stop
+  };
+}
+
+function fetchResults(job_id){
+  fetch("/results/" + job_id).then(r=>r.json()).then(data=>{
+    if(data && data.results){
+      document.getElementById("resultsList").innerHTML = "";
+      for(const item of data.results){
+        addResultItem(item, false);
+      }
+      if(data.file){
+        const link = document.getElementById("downloadLink");
+        link.href = "/download/" + job_id;
+        link.style.display = "inline";
+      } else {
+        document.getElementById("downloadLink").style.display = "none";
+      }
+      document.getElementById("resultsPanel").style.display = "block";
+    }
+    // update buttons
+    document.getElementById("startBtn").textContent = "Start";
+  }).catch(err=>{
+    console.error(err);
+  });
+}
+
+function stopEvent(){
+  if(evtSource){
+    evtSource.close();
+    evtSource = null;
+    document.getElementById("stopBtn").style.display = "none";
+    appendLog({type:"log", msg:"Log stream stopped by user."});
+  }
+}
+</script>
 </body>
 </html>
