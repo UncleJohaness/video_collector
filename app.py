@@ -28,7 +28,7 @@ def scrape_videos(job_id, keywords, num_links):
 
         q.put({'type':'log', 'msg': f"Fetching page {page_num}..."})
         try:
-            r = requests.get(f"https://website.com/video?page={page_num}", timeout=10)
+            r = requests.get(f"https://pornhub.com/video?page={page_num}", timeout=10)
             r.raise_for_status()
         except Exception as e:
             q.put({'type':'error', 'msg': f"Failed to fetch page {page_num}: {e}"})
