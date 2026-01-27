@@ -296,23 +296,28 @@ def stream(job_id):
         return abort(404)
 
     def event_stream():
-        q = jobs[job_id]['queue']
-        # continue streaming until job finished and queue empty
-        while True:
-            try:
-                obj = q.get(timeout=0.5)
-            except queue.Empty:
-                # break when finished and queue empty
+    q = jobs[job_id]['queue']
+    last_ping = time.time()  # track last heartbeat
+
+    while True:
+        try:
+            obj = q.get(timeout=0.5)
+        except queue.Empty:
+            # <-- this block MUST be indented relative to except
+            if time.time() - last_ping > 10:
+                yield "data: {}\n\n"  # heartbeat
+                last_ping = time.time()
+            
             if jobs[job_id]['finished'] and q.empty():
-                    break
-                continue
-            # send object as JSON-like string
-            # EventSource expects 'data:' lines and double newline to end
-            import json
-            payload = json.dumps(obj, default=str)
-            yield f"data: {payload}\n\n"
-        # final message
-        yield f"data: {json.dumps({'type':'final','msg':'stream closed'})}\n\n"
+                break
+            continue
+
+        import json
+        payload = json.dumps(obj, default=str)
+        yield f"data: {payload}\n\n"
+
+    # final message
+    yield f"data: {json.dumps({'type':'final','msg':'stream closed'})}\n\n"
 
     return app.response_class(event_stream(), mimetype="text/event-stream")
 
