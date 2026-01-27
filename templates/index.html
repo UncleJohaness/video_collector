@@ -46,7 +46,7 @@
 </header>
 
 <main class="container">
-  <form id="collectForm" class="card" onsubmit="return startJob();">
+  <form id="collectForm" class="card" method="post" onsubmit="return startJob();" autocomplete="off" novalidate>
     <div>
       <label for="keywords">Keywords / tags (comma separated)</label>
       <input id="keywords" name="keywords" type="text" placeholder="e.g. cat, tutorial, 2024" required />
