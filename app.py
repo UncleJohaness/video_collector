@@ -1253,17 +1253,10 @@ INDEX_HTML = """
     es.addEventListener("video", (ev) => {
         const v = JSON.parse(ev.data);
 
-        // Tag the keyword that produced this result (best-effort)
-        const kw = v.kw || "unknown";
-        countsByKeyword[kw] = (countsByKeyword[kw] || 0) + 1;
-
-
         if (!isLocked(v)){
             collected.push(v);
             addCard(v, false);
         }
-
-        renderStats();
         updateSpinEnabled();
     });
 
