@@ -933,6 +933,14 @@ INDEX_HTML = """
 
     // Spin only available after done
     $("spin").disabled = true;
+
+    // Count locked videos into stats (optional)
+    for (const v of Object.values(lockedMap || {})) {
+    const kw = v.kw || "locked";
+    countsByKeyword[kw] = (countsByKeyword[kw] || 0) + 1;
+    }
+    renderStats();
+
   }
 
   function openVideo(url){
@@ -1273,12 +1281,19 @@ INDEX_HTML = """
     es.addEventListener("video", (ev) => {
         const v = JSON.parse(ev.data);
 
+        // ✅ increment stats
+        const kw = v.kw || lastKeywordUsed || "unknown";
+        countsByKeyword[kw] = (countsByKeyword[kw] || 0) + 1;
+
         if (!isLocked(v)){
             collected.push(v);
             addCard(v, false);
         }
+
         updateSpinEnabled();
+        renderStats();
     });
+
 
 
     es.addEventListener("done", (ev) => {
