@@ -16,7 +16,7 @@ app = Flask(__name__)
 TARGET_BASE_URL = "http://pornhub.com"
 
 DEFAULT_MAX_ATTEMPTS = 300
-DEFAULT_TIMEOUT = 60
+DEFAULT_TIMEOUT = 20
 DEFAULT_SLEEP_S = 0.2
 DEFAULT_MATCH_MODE = "word"  # whole-word
 
@@ -860,6 +860,11 @@ INDEX_HTML = """
     localStorage.setItem(LS_KEY_LOCKS, JSON.stringify(lockedMap));
   }
 
+  function updateSpinEnabled(){
+    $("spin").disabled = (getAllPlayable().length === 0);
+  }
+
+
   function loadMystery(){
     try{
       const raw = localStorage.getItem(LS_KEY_MYSTERY);
@@ -1079,23 +1084,26 @@ INDEX_HTML = """
   }
 
   function showRoulette(){
-    if (!runFinished){
-      $("status").textContent = "Finish scraping first, then SPIN.";
-      vibrate(15);
-      return;
-    }
     const list = getAllPlayable();
-    if (!list.length){
-      $("status").textContent = "No videos available.";
-      return;
+
+    if (!runFinished && list.length === 0){
+        $("status").textContent = "Scrape first, then SPIN.";
+        vibrate(12);
+        return;
     }
+
+    if (!list.length){
+        $("status").textContent = "No videos available.";
+        return;
+    }
+
     $("roulette").classList.add("show");
-    // Seed preview
     const v = list[Math.floor(Math.random() * list.length)];
     $("rouletteName").textContent = v.title || "Untitled";
     $("rouletteImg").src = v.thumb || "";
     vibrate(10);
   }
+
 
   function hideRoulette(){
     $("roulette").classList.remove("show");
@@ -1256,25 +1264,28 @@ INDEX_HTML = """
         }
 
         renderStats();
+        updateSpinEnabled();
     });
 
 
     es.addEventListener("done", (ev) => {
-      const d = JSON.parse(ev.data);
-      runFinished = true;
-      $("status").textContent = `Done. Collected ${d.total} videos in ${d.attempts} attempts.`;
-      $("spin").disabled = (getAllPlayable().length === 0);
-      stopStream();
-      vibrate(20);
+        const d = JSON.parse(ev.data);
+        runFinished = true;
+        $("status").textContent = `Done. Collected ${d.total} videos in ${d.attempts} attempts.`;
+        stopStream();
+        updateSpinEnabled();
+        vibrate(20);
     });
 
-    es.onerror = () => {
-      $("status").textContent = "Stream error / disconnected.";
-      $("spin").disabled = true;
-      runFinished = false;
-      stopStream();
-    };
-  }
+
+        es.onerror = () => {
+        $("status").textContent = "Disconnected.";
+        runFinished = true;          // treat as finished so roulette is allowed
+        stopStream();
+        updateSpinEnabled();         // enable SPIN if anything was collected/locked
+        vibrate(12);
+        };
+    }
 
   // Mystery toggle
   function toggleMystery(){
