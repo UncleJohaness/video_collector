@@ -21,6 +21,8 @@ DEFAULT_SLEEP_S = 0.2
 DEFAULT_MATCH_MODE = "word"  # whole-word
 
 
+
+
 # Matches: /view_video.php?viewkey=6961cc79091bd
 VIDEO_URL_RE = re.compile(r"/view_video\.php\?viewkey=([^&\"'#\s]+)", re.IGNORECASE)
 WHITESPACE_RE = re.compile(r"\s+")
@@ -243,6 +245,7 @@ def stream_find_videos(
     base = need // k
     rem = need % k
 
+    
     quotas = {}
     for i, kw in enumerate(kw_list):
         quotas[kw] = base + (1 if i < rem else 0)
@@ -251,6 +254,10 @@ def stream_find_videos(
 
     def remaining_keywords():
         return [kw for kw in kw_list if counts[kw] < quotas[kw]]
+
+    fail_streaks = {kw: 0 for kw in kw_list}
+    FAIL_LIMIT = 5
+
 
     def pick_new_keyword(prev: Optional[str]) -> str:
         candidates = remaining_keywords()
@@ -279,10 +286,15 @@ def stream_find_videos(
         if not remaining_keywords():
             break
 
-        # Switch keyword if streak hit limit OR quota is filled
-        if streak_added >= STREAK_LIMIT or counts[current_keyword] >= quotas[current_keyword]:
+            # Switch keyword if streak hit limit OR quota is filled
+        if (
+            streak_added >= STREAK_LIMIT
+            or counts[current_keyword] >= quotas[current_keyword]
+            or fail_streaks[current_keyword] >= FAIL_LIMIT
+        ):
             current_keyword = pick_new_keyword(current_keyword)
             streak_added = 0
+
 
         attempts += 1
         page = random.randint(min_page, max_page)
@@ -319,6 +331,11 @@ def stream_find_videos(
                 break
             if v.viewkey in pool_keys:
                 continue
+            
+            if added == 0:
+                fail_streaks[current_keyword] += 1
+            else:
+                fail_streaks[current_keyword] = 0
 
             pool_keys.add(v.viewkey)
             added += 1
@@ -342,6 +359,9 @@ def stream_find_videos(
             "streak_limit": STREAK_LIMIT,
             "kw_count": counts[current_keyword],
             "kw_quota": quotas[current_keyword],
+            "fail_streak": fail_streaks[current_keyword],
+            "fail_limit": FAIL_LIMIT,
+
         })
 
         time.sleep(sleep_s)
