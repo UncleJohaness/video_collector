@@ -16,7 +16,7 @@ app = Flask(__name__)
 TARGET_BASE_URL = "http://pornhub.com"
 
 DEFAULT_MAX_ATTEMPTS = 300
-DEFAULT_TIMEOUT = 20
+DEFAULT_TIMEOUT = 60
 DEFAULT_SLEEP_S = 0.2
 DEFAULT_MATCH_MODE = "word"  # whole-word
 
