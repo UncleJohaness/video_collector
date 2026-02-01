@@ -17,7 +17,7 @@ TARGET_BASE_URL = "http://pornhub.com"
 
 DEFAULT_MAX_ATTEMPTS = 300
 DEFAULT_TIMEOUT = 20
-DEFAULT_SLEEP_S = 0.4
+DEFAULT_SLEEP_S = 0.2
 DEFAULT_MATCH_MODE = "word"  # whole-word
 
 
@@ -202,6 +202,8 @@ def sse_event(event: str, data_obj) -> str:
     return f"event: {event}\n" + "data: " + json.dumps(data_obj, ensure_ascii=False) + "\n\n"
 
 
+
+
 def stream_find_videos(
     base_url: str,
     keywords: List[str],
@@ -218,37 +220,88 @@ def stream_find_videos(
         "User-Agent": "Mozilla/5.0 (compatible; LocalVideoFinder/1.0)"
     })
 
-    pool_keys: Set[str] = set()
+    import math
 
+    # --- dynamic streak limit based on need + keyword count ---
+    K = max(1, len(keywords))
+    share = math.ceil(need / K)
+
+    PERCENT_OF_SHARE = 0.40
+    MIN_BATCH = 1
+    MAX_BATCH = 10
+
+    STREAK_LIMIT = math.ceil(share * PERCENT_OF_SHARE)
+    STREAK_LIMIT = max(MIN_BATCH, min(MAX_BATCH, STREAK_LIMIT))
+
+    pool_keys: Set[str] = set()
     attempts = 0
     yielded = 0
 
+    # --- quota split across keywords ---
+    kw_list = list(keywords)
+    k = max(1, len(kw_list))
+    base = need // k
+    rem = need % k
+
+    quotas = {}
+    for i, kw in enumerate(kw_list):
+        quotas[kw] = base + (1 if i < rem else 0)
+
+    counts = {kw: 0 for kw in kw_list}
+
+    def remaining_keywords():
+        return [kw for kw in kw_list if counts[kw] < quotas[kw]]
+
+    def pick_new_keyword(prev: Optional[str]) -> str:
+        candidates = remaining_keywords()
+        if not candidates:
+            return prev or kw_list[0]
+        if prev in candidates and len(candidates) == 1:
+            return prev
+        if prev in candidates:
+            candidates = [c for c in candidates if c != prev] or candidates
+        return random.choice(candidates)
+
+    current_keyword = pick_new_keyword(None)
+    streak_added = 0
+
     yield sse_event("meta", {
-        "base_url": base_url,
         "need": need,
         "min_page": min_page,
         "max_page": max_page,
-        "max_attempts": max_attempts,
-        "match_mode": match_mode,
+        "quotas": quotas,
+        "streak_limit": STREAK_LIMIT,
+        "share": share,
+        "keywords": len(kw_list),
     })
 
     while yielded < need and attempts < max_attempts:
-        attempts += 1
-        keyword = random.choice(keywords)
-        page = random.randint(min_page, max_page)
+        if not remaining_keywords():
+            break
 
-        search_url = build_search_url(base_url, keyword, page)
+        # Switch keyword if streak hit limit OR quota is filled
+        if streak_added >= STREAK_LIMIT or counts[current_keyword] >= quotas[current_keyword]:
+            current_keyword = pick_new_keyword(current_keyword)
+            streak_added = 0
+
+        attempts += 1
+        page = random.randint(min_page, max_page)
+        search_url = build_search_url(base_url, current_keyword, page)
 
         try:
             html = fetch_html(session, search_url, timeout=timeout)
         except requests.RequestException as e:
             yield sse_event("status", {
                 "attempt": attempts,
-                "keyword": keyword,
+                "keyword": current_keyword,
                 "page": page,
                 "error": str(e),
                 "added": 0,
-                "total": yielded
+                "total": yielded,
+                "streak_added": streak_added,
+                "streak_limit": STREAK_LIMIT,
+                "kw_count": counts[current_keyword],
+                "kw_quota": quotas[current_keyword],
             })
             time.sleep(sleep_s)
             continue
@@ -258,36 +311,49 @@ def stream_find_videos(
 
         added = 0
         for v in matches:
+            if yielded >= need:
+                break
+            if counts[current_keyword] >= quotas[current_keyword]:
+                break
+            if streak_added >= STREAK_LIMIT:
+                break
             if v.viewkey in pool_keys:
                 continue
+
             pool_keys.add(v.viewkey)
             added += 1
             yielded += 1
+            streak_added += 1
+            counts[current_keyword] += 1
 
             payload = asdict(v)
-            payload["kw"] = keyword  # the keyword used for this page attempt
+            payload["kw"] = current_keyword
             yield sse_event("video", payload)
-
-
-            if yielded >= need:
-                break
 
         yield sse_event("status", {
             "attempt": attempts,
-            "keyword": keyword,
+            "keyword": current_keyword,
             "page": page,
             "found": len(videos),
             "matches": len(matches),
             "added": added,
-            "total": yielded
+            "total": yielded,
+            "streak_added": streak_added,
+            "streak_limit": STREAK_LIMIT,
+            "kw_count": counts[current_keyword],
+            "kw_quota": quotas[current_keyword],
         })
 
         time.sleep(sleep_s)
 
     yield sse_event("done", {
         "attempts": attempts,
-        "total": yielded
+        "total": yielded,
+        "counts": counts,
+        "quotas": quotas
     })
+
+
 
 
 INDEX_HTML = """
